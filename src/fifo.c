@@ -1,0 +1,133 @@
+/*	Fixed size fifo with fixed size entries
+ */
+
+#include <assert.h>
+
+#include "fifo.h"
+
+void fifoInit (fifo * const fifo, void * const data, const size_t len,
+		const size_t entrySize) {
+	assert (len % entrySize == 0);
+
+	fifo->entrySize = entrySize;
+	fifo->dataStart = data;
+	fifo->read = data;
+	fifo->write = data;
+	fifo->dataEnd = data + len;
+}
+
+static uint8_t *advanceWrite (const fifo * const fifo) {
+	uint8_t *write = fifo->write;
+	write += fifo->entrySize;
+	if (write >= fifo->dataEnd) {
+		write = fifo->dataStart;
+	}
+	return write;
+}
+
+/*	Return area that can be used for new item
+ */
+void *fifoPushAlloc (fifo * const fifo) {
+	uint8_t *newwrite = advanceWrite (fifo);
+	if (newwrite == fifo->read) {
+		/* fifo full */
+		return NULL;
+	}
+	fifo->pushLocked = true;
+	return fifo->write;
+}
+
+void fifoPushCommit (fifo * const fifo) {
+	assert (fifo->pushLocked);
+	fifo->pushLocked = false;
+	fifo->write = advanceWrite (fifo);
+}
+
+/*	Pop item from fifo and return address
+ */
+void *fifoPop (fifo * const fifo) {
+	uint8_t *read = fifo->read;
+	void * const ret = read;
+	if (read == fifo->write) {
+		/* fifo empty */
+		return NULL;
+	}
+	read += fifo->entrySize;
+	if (read >= fifo->dataEnd) {
+		read = fifo->dataStart;
+	}
+	fifo->read = read;
+	return ret;
+}
+
+/*	Items currently in fifo
+ */
+size_t fifoItems (const fifo * const fifo) {
+	const uintptr_t read = (uintptr_t) fifo->read, write = (uintptr_t) fifo->write;
+	if (read > write) {
+		const size_t size = (uintptr_t) fifo->dataEnd - (uintptr_t) fifo->dataStart;
+		return (size - (read-write))/fifo->entrySize;
+	} else {
+		return (write-read)/fifo->entrySize;
+	}
+}
+
+#ifdef _TEST
+/* tests */
+#include <check.h>
+#include <stdlib.h>
+
+START_TEST (testAll) {
+	fifo f;
+	uint8_t fdata[128];
+
+	for (unsigned int j = 0; j < 6; j++) {
+		const unsigned int itemsize = 1<<j;
+
+		memset (fdata, 0, sizeof (fdata));
+		fifoInit (&f, fdata, sizeof (fdata), itemsize);
+
+		const unsigned int maxitems = sizeof (fdata)/itemsize-1;
+		for (uint8_t i = 0; i < maxitems; i++) {
+			uint8_t * const v = fifoPushAlloc (&f);
+			fail_unless (v != NULL);
+			memset (v, i, itemsize);
+			fail_unless (fifoItems (&f) == i);
+			fifoPushCommit (&f);
+			fail_unless (fifoItems (&f) == i+1);
+		}
+		fail_unless (fifoPushAlloc (&f) == NULL);
+		for (uint8_t i = 0; i < maxitems; i++) {
+			const uint8_t * const v = fifoPop (&f);
+			fail_unless (v != NULL);
+			fail_unless (memcmp (v, &i, sizeof (i)) == 0, "expected %u, got %u", i, *v);
+		}
+		fail_unless (fifoPop (&f) == NULL, "fifo should be empty now");
+	}
+} END_TEST
+
+Suite *test() {
+	Suite *s = suite_create ("fifo");
+
+	/* add generic tests */
+	TCase *tc_core = tcase_create ("generic");
+	tcase_add_test (tc_core, testAll);
+	suite_add_tcase (s, tc_core);
+
+	return s;
+}
+
+/*	test suite runner
+ */
+int main (int argc, char **argv) {
+	int numberFailed;
+	SRunner *sr = srunner_create (test ());
+
+	srunner_run_all (sr, CK_ENV);
+	numberFailed = srunner_ntests_failed (sr);
+	srunner_free (sr);
+
+	return (numberFailed == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+#endif
+

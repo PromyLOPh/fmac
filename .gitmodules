@@ -1,0 +1,15 @@
+[submodule "src/bitbite"]
+	path = src/bitbite
+	url = ../libbitbite
+[submodule "src/dottedline"]
+	path = src/dottedline
+	url = ../libdottedline
+[submodule "src/prettylewis"]
+	path = src/prettylewis
+	url = ../libprettylewis
+[submodule "src/rtt"]
+	path = src/rtt
+	url = ../rtt
+[submodule "src/xmclib"]
+	path = src/xmclib
+	url = ../xmclib
