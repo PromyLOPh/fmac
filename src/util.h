@@ -21,6 +21,12 @@
 	#else
 		#define DEBUG_TIMING_FMAC_SEND_FIRE
 	#endif
+
+	#ifdef DEBUG_TIMING_FMAC_RCV
+		#define DEBUG_TIMING_FMAC_RCV_FIRE DEBUG_TIMING_FIRE
+	#else
+		#define DEBUG_TIMING_FMAC_RCV_FIRE
+	#endif
 #endif
 
 #ifdef TX_LED

@@ -2,19 +2,22 @@
 
 /* user/application configuration */
 
+#if 0
 /* fixed parameters for debugging without SPI adapter */
 #define DEBUG_STATIONID (0)
 #define DEBUG_NUMSTATIONS (2)
 /* continuously send packets */
 //#define DEBUG_CONTINUOUS_SEND
+#endif
 
 /* toggle pin for timing events */
 #define DEBUG_TIMING_PIN P2_1
-#define DEBUG_TIMING_FMAC_IRQ
+//#define DEBUG_TIMING_FMAC_IRQ
 //#define DEBUG_TIMING_FMAC_SEND
+#define DEBUG_TIMING_FMAC_RCV
 
 /* en/disable debugging output */
-#define DEBUG_FMAC
+//#define DEBUG_FMAC
 //#define DEBUG_SPICLIENT
 
 #define TDA_BAUDRATE (2000000)

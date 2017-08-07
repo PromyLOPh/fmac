@@ -189,6 +189,7 @@ static void rxeom (tda5340Ctx * const tda, void * const data) {
 
 	fm->rxPacketValid = true;
 
+	DEBUG_TIMING_FMAC_RCV_FIRE;
 	if (fm->rxcb) {
 		fm->rxcb (fm->cbdata, fm->rxPacket, fm->payloadLen);
 	}
