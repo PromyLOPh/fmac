@@ -103,18 +103,26 @@ static void initFifos (spiclient * const client) {
 	fifoInit (&client->txFifo, client->txData, sizeof (client->txData), SPICLIENT_TX_ITEM_SIZE);
 }
 
+#include "fmac.h"
+
 /*	Called whenever station wants to send data (i.e. this node own the current slot)
  */
 bool spiclientTx (void * const data, const void ** const payload, size_t * const size) {
 	assert (data != NULL);
 	assert (payload != NULL);
 	assert (size != NULL);
-	spiclient * const _unused_ client = (spiclient * const) data;
+	spiclient * const client = (spiclient * const) data;
 
 #ifdef DEBUG_CONTINUOUS_SEND
+	const fmacCtx * const fm = client->macData;
 	/* debugging: continuously send data */
+	static uint32_t seqnum = 0;
+	/* must be static, otherwise it will be overwritten on the stack */
 	static uint8_t foo[PAYLOAD_SIZE];
-	++foo[0];
+	memset (foo, 0, sizeof (foo));
+	memcpy (foo, &fm->i, sizeof (fm->i));
+	memcpy (&foo[sizeof (fm->i)], &seqnum, sizeof (seqnum));
+	++seqnum;
 	*payload = foo;
 	*size = sizeof (foo);
 	return true;
@@ -138,6 +146,8 @@ bool spiclientRx (void * const data, const void * const payload, const size_t si
 	spiclient * const client = (spiclient * const) data;
 
 	/* dump data to RTT channel 1, used to display it on the host */
+	const uint32_t ident = 0x48fac0b4;
+	SEGGER_RTT_Write (1, &ident, sizeof (ident));
 	SEGGER_RTT_Write (1, payload, size);
 
 	uint8_t * const ret = fifoPushAlloc (&client->rxFifo);
