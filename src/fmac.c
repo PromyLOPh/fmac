@@ -124,14 +124,15 @@ static bool flush (fmacCtx * const fm) {
 	/* XXX: should be receiving, but it is not. frequently happens for xmc4500,
 	 * but not xmc1100. a reset does not fix the issue either (→txerror). not
 	 * sure why. */
-	if (tda->mode != TDA_RUN_MODE_SLAVE) {
-		tda5340Reset (tda);
-		while (tda->mode != TDA_SLEEP_MODE);
-	}
-	if (!tda5340ModeSet (tda, TDA_TRANSMIT_MODE, false, TDA_CONFIG_A)) {
-		TX_LED_FIRE;
-		tda->txready = NULL;
-		return false;
+	if (tda->mode == TDA_TRANSMIT_MODE) {
+		SEGGER_RTT_printf (0, "flush: already in tx\n");
+		txready (tda, fm);
+	} else {
+		if (!tda5340ModeSet (tda, TDA_TRANSMIT_MODE, false, TDA_CONFIG_A)) {
+			TX_LED_FIRE;
+			tda->txready = NULL;
+			return false;
+		}
 	}
 	return true;
 }
@@ -179,12 +180,24 @@ static void rxeom (tda5340Ctx * const tda, void * const data) {
 	}
 
 	/* check crc32 */
-	const uint32_t crc32 = crc32Calc ((uint32_t *) fm->rxPacket, fm->payloadLen);
-	uint32_t crc32Expect;
-	memcpy (&crc32Expect, &fm->rxPacket[fm->payloadLen], sizeof (crc32Expect));
-	if (crc32 != crc32Expect) {
-		SEGGER_RTT_printf (0, "crc mismatch %lx != %lx\n", crc32, crc32Expect);
-		goto done;
+	uint32_t crc32 = crc32Calc ((uint32_t *) fm->rxPacket, fm->payloadLen+4);
+	if (crc32 != 0) {
+		const unsigned int incorrect = crc32IncorrectBit (crc32);
+		if (incorrect != -1) {
+			SEGGER_RTT_printf (0, "crc mismatch %x, bit %u incorrect\n", crc32, incorrect);
+			/* correct that bit */
+			fm->rxPacket[incorrect/8] ^= (1<<(incorrect%8));
+			/* try again, XXX: is this required or can we just assume the
+			 * packet is now correct? */
+			crc32 = crc32Calc ((uint32_t *) fm->rxPacket, fm->payloadLen+4);
+			if (crc32 != 0) {
+				SEGGER_RTT_printf (0, "uncorrectable 1 bit crc error\n");
+				goto done;
+			}
+		} else {
+			SEGGER_RTT_printf (0, "uncorrectable n bit crc error\n");
+			goto done;
+		}
 	}
 
 	fm->rxPacketValid = true;
@@ -249,8 +262,7 @@ static void dispatch (fmacCtx * const fm) {
 				event (fm, fm->delta*fm->k[fm->i]);
 			}
 			if (!flush (fm)) {
-				fm->state = FMAC_IDLE;
-				stop ();
+				/* ignore failed flush, try again next time */
 				debug ("flush failed\n");
 			}
 			break;
@@ -258,6 +270,7 @@ static void dispatch (fmacCtx * const fm) {
 		case FMAC_WAIT_END:
 			/* done, ready for a new packet */
 			fm->state = FMAC_IDLE;
+			/* XXX: we should enforce switching to rx here if it failed for some reason */
 			if (fm->txcb != NULL) {
 				const void *data;
 				size_t size;
@@ -393,7 +406,7 @@ void fmacInit (fmacCtx * const fm, const uint8_t i, const uint8_t n,
 	fm->delta = US_TO_TICKS ((fm->frameletLen*8*usPerBit+RXTX_SWITCHING_US*2)*2)*DELTA_SCALER+US_TO_TICKS(CORRECTION_US);
 	fm->i = i;
 	fm->n = n;
-	assert (n == 2);
+	assert (n < sizeof (optimalKOff)/sizeof (*optimalKOff));
 	fm->k = &optimalK[optimalKOff[n]];
 	fm->kmax = 0;
 	for (uint8_t j = 0; j < n; j++) {
@@ -414,7 +427,7 @@ void fmacInit (fmacCtx * const fm, const uint8_t i, const uint8_t n,
 	tda5340RegWrite (tda, TDA_B_EOMDLEN, (fm->payloadLen+4)*10);
 	tda5340ModeSet (tda, TDA_RUN_MODE_SLAVE, false, TDA_CONFIG_B);
 
-	crc32Init ();
+	crc32Init (payloadLen+4);
 
 	XMC_CCU4_SetModuleClock(MODULE_PTR, XMC_CCU4_CLOCK_SCU);
 	XMC_CCU4_Init(MODULE_PTR, XMC_CCU4_SLICE_MCMS_ACTION_TRANSFER_PR_CR);
