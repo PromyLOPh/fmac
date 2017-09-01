@@ -35,55 +35,12 @@
 #define RXTX_SWITCHING_US (500)
 #define DELTA_SCALER (1)
 
-/* packet specifics, XXX length is still hardcoded in a lot of places */
-/* 8 bit runin, 16 bit tsi */
-#define PREAMBLE (3)
-/* after the actual message, N zeros are sent, otherwise the receiver fails to
- * detect the last bit if it is logic one. make sure to change the code below
- * when modifying this value */
-#define TRAILING_ZEROS (8)
-#define TRAILING_ZEROS_BYTES ((TRAILING_ZEROS-1)/8+1)
-
 #include <SEGGER_RTT.h>
 #ifdef DEBUG_FMAC
 #define debug(f, ...) SEGGER_RTT_printf(0, "fmac: " f, ##__VA_ARGS__)
 #else
 #define debug(...)
 #endif
-
-static size_t preparePacket (uint8_t * const dest,
-		const uint8_t * const data, const uint32_t len) {
-	assert (data != NULL);
-	assert (len > 0);
-
-	dest[0] = 0xaa;
-	dest[1] = 0x9a;
-	dest[2] = 0x69;
-
-	const uint32_t crc32 = crc32Calc ((const uint32_t * const) data, len);
-
-	/* XXX: we could save this memcpy if eightbtenbEncode handles multiple
-	 * calls well */
-	uint8_t raw[FMAC_MAX_PACKET_LEN];
-	const size_t rawSize = len + sizeof (crc32);
-	assert (rawSize <= sizeof (raw));
-	memcpy (raw, data, len);
-	memcpy (&raw[len], &crc32, sizeof (crc32));
-
-	const size_t encodedSizeBits = rawSize*10;
-	assert (encodedSizeBits%8 == 0);
-	const size_t encodedSizeBytes = encodedSizeBits/8;
-	eightbtenbCtx linecode;
-	eightbtenbInit (&linecode);
-	eightbtenbSetDest (&linecode, &dest[PREAMBLE]);
-	eightbtenbEncode (&linecode, raw, rawSize);
-
-	memset (&dest[PREAMBLE+encodedSizeBytes], 0, TRAILING_ZEROS_BYTES);
-
-	const size_t s = PREAMBLE*8+encodedSizeBits+TRAILING_ZEROS;
-
-	return s;
-}
 
 /*	Go back to rx as soon as packet is sent
  */
@@ -165,45 +122,9 @@ static void rxeom (tda5340Ctx * const tda, void * const data) {
 	const uint32_t rxLen = bitbufferLength (&rxPacketBuf);
 	//debug ("received %u bits\n", rxLen);
 
-	const uint32_t lenExpect = (fm->payloadLen+4)*10;
-	if (rxLen != lenExpect) {
-		SEGGER_RTT_printf (0, "packet size mismatch have %u want %u\n", rxLen, lenExpect);
-		goto done;
-	}
-
-	eightbtenbCtx linecode;
-	eightbtenbInit (&linecode);
-	eightbtenbSetDest (&linecode, fm->rxPacket);
-	if (!eightbtenbDecode (&linecode, rxPacket, rxLen)) {
-		SEGGER_RTT_printf (0, "8b10b fail\n");
-		goto done;
-	}
-
-	/* check crc32 */
-	uint32_t crc32 = crc32Calc ((uint32_t *) fm->rxPacket, fm->payloadLen+4);
-	if (crc32 != 0) {
-		const unsigned int incorrect = crc32IncorrectBit (crc32);
-		if (incorrect != -1) {
-			SEGGER_RTT_printf (0, "crc mismatch %x, bit %u incorrect\n", crc32, incorrect);
-			/* correct that bit */
-			fm->rxPacket[incorrect/8] ^= (1<<(incorrect%8));
-			/* try again, XXX: is this required or can we just assume the
-			 * packet is now correct? */
-			crc32 = crc32Calc ((uint32_t *) fm->rxPacket, fm->payloadLen+4);
-			if (crc32 != 0) {
-				SEGGER_RTT_printf (0, "uncorrectable 1 bit crc error\n");
-				goto done;
-			}
-		} else {
-			SEGGER_RTT_printf (0, "uncorrectable n bit crc error\n");
-			goto done;
-		}
-	}
-
-	fm->rxPacketValid = true;
-
 	DEBUG_TIMING_FMAC_RCV_FIRE;
-	if (fm->rxcb) {
+	if (fm->enc.decode (rxPacket, rxLen, fm->rxPacket,
+			sizeof (fm->rxPacket)) == PACKET_DECODE_OK && fm->rxcb != NULL) {
 		fm->rxcb (fm->cbdata, fm->rxPacket, fm->payloadLen);
 	}
 
@@ -366,7 +287,7 @@ const tdaConfigVal tdaConfig[] = {
 	TDA_CFG_RXBAUDRATE(B, 100),
 
 	{TDA_B_TSILENA, 0x10}, /* tsi length 16 chips/bits */
-	{TDA_B_EOMC, 0x05}, /* eom by data length or sync loss */
+	{TDA_B_EOMC, 0x01}, /* eom by data length */
 
 	{TDA_B_TSIPTA0, 0x96},
 	{TDA_B_TSIPTA1, 0x59},
@@ -394,11 +315,11 @@ void fmacInit (fmacCtx * const fm, const uint8_t i, const uint8_t n,
 	assert (fm != NULL);
 	assert (tda != NULL);
 
+	packet8b10bInit (&fm->enc);
 	fm->txPacketValid = false;
-	fm->rxPacketValid = false;
 	assert ((payloadLen+4)*10%8 == 0);
 	fm->payloadLen = payloadLen;
-	fm->frameletLen = PREAMBLE+(payloadLen+4)*10/8+TRAILING_ZEROS_BYTES;
+	fm->frameletLen = fm->enc.txlen (payloadLen);
 	assert (fm->frameletLen < FMAC_MAX_PACKET_LEN);
 	fm->tda = tda;
 	const uint32_t usPerBit = 10;
@@ -424,7 +345,7 @@ void fmacInit (fmacCtx * const fm, const uint8_t i, const uint8_t n,
 	bool ret = tda5340RegWriteBulk (tda, tdaConfig, tdaConfigSize);
 	assert (ret);
 	/* payload bits (8b10b encoded) */
-	tda5340RegWrite (tda, TDA_B_EOMDLEN, (fm->payloadLen+4)*10);
+	tda5340RegWrite (tda, TDA_B_EOMDLEN, fm->enc.rxlen (fm->payloadLen));
 	tda5340ModeSet (tda, TDA_RUN_MODE_SLAVE, false, TDA_CONFIG_B);
 
 	crc32Init (payloadLen+4);
@@ -450,7 +371,7 @@ bool fmacSend (fmacCtx * const fm, const uint8_t * const buf, const uint8_t len)
 	}
 	assert (!fm->txPacketValid);
 	assert (len == fm->payloadLen);
-	size_t actualLenBits = preparePacket (fm->txPacket, buf, len);
+	size_t actualLenBits = fm->enc.encode (buf, len, fm->txPacket, sizeof (fm->txPacket));
 	assert (actualLenBits <= fm->frameletLen*8);
 
 	DEBUG_TIMING_FMAC_SEND_FIRE;

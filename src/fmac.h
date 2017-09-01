@@ -11,6 +11,8 @@ typedef bool (*fmacTxCallback) (void * const data,
 typedef bool (*fmacRxCallback) (void * const data, const void * const payload,
 			const size_t size);
 
+#include "packet.h"
+
 typedef struct {
 	volatile enum {
 		FMAC_IDLE,
@@ -36,6 +38,7 @@ typedef struct {
 	bool rxPacketValid, txPacketValid;
 
 	tda5340Ctx *tda;
+	packetEncoder enc;
 
 	/* callbacks and data */
 	fmacTxCallback txcb;
