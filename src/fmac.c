@@ -287,7 +287,7 @@ const tdaConfigVal tdaConfig[] = {
 	TDA_CFG_RXBAUDRATE(B, 100),
 
 	{TDA_B_TSILENA, 0x10}, /* tsi length 16 chips/bits */
-	{TDA_B_EOMC, 0x01}, /* eom by data length */
+	{TDA_B_EOMC, 0x05}, /* eom by data length and sync loss */
 
 	{TDA_B_TSIPTA0, 0x96},
 	{TDA_B_TSIPTA1, 0x59},
@@ -317,7 +317,6 @@ void fmacInit (fmacCtx * const fm, const uint8_t i, const uint8_t n,
 
 	packet8b10bInit (&fm->enc);
 	fm->txPacketValid = false;
-	assert ((payloadLen+4)*10%8 == 0);
 	fm->payloadLen = payloadLen;
 	fm->frameletLen = fm->enc.txlen (payloadLen);
 	assert (fm->frameletLen < FMAC_MAX_PACKET_LEN);

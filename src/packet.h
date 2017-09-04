@@ -27,4 +27,5 @@ typedef struct {
 } packetEncoder;
 
 void packet8b10bInit (packetEncoder * const enc);
+void packetIdentityInit (packetEncoder * const enc);
 

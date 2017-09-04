@@ -17,6 +17,8 @@
 #define TRAILING_ZEROS (8)
 #define TRAILING_ZEROS_BYTES ((TRAILING_ZEROS-1)/8+1)
 
+/* ===== 8b10b ===== */
+
 static size_t packet8b10bEncode (const uint8_t * const src, const size_t srcLen,
 		uint8_t * const dest, const size_t destLen) {
 	assert (src != NULL);
@@ -54,8 +56,9 @@ static size_t packet8b10bEncode (const uint8_t * const src, const size_t srcLen,
 
 static packetDecodeStatus packet8b10bDecode (const uint8_t * const src,
 		const size_t srcBits, uint8_t * const dest, const size_t destLen) {
-	/* 8b10b decoder expects full symbols */
-	if (srcBits % 10 != 0) {
+	/* 8b10b decoder expects full symbols, packet must be large enough to carry
+	 * crc */
+	if (srcBits % 10 != 0 || srcBits <= 40) {
 		SEGGER_RTT_printf (0, "packet len fail, %u\n", srcBits);
 		return PACKET_DECODE_LINECODE_FAIL;
 	}
@@ -107,3 +110,75 @@ void packet8b10bInit (packetEncoder * const enc) {
 	enc->rxlen = packet8b10bRxLen;
 }
 
+/* ===== identity ===== */
+
+static size_t identityEncode (const uint8_t * const src, const size_t srcLen,
+		uint8_t * const dest, const size_t destLen) {
+	assert (src != NULL);
+	assert (srcLen > 0);
+	assert (dest != NULL);
+
+	dest[0] = 0xaa;
+	dest[1] = 0x9a;
+	dest[2] = 0x69;
+
+	const uint32_t crc32 = crc32Calc ((const uint32_t * const) src, srcLen);
+
+	memcpy (&dest[PREAMBLE], src, srcLen);
+	memcpy (&dest[PREAMBLE+srcLen], &crc32, sizeof (crc32));
+	memset (&dest[PREAMBLE+srcLen+sizeof (crc32)], 0, TRAILING_ZEROS_BYTES);
+
+	const size_t s = PREAMBLE*8+srcLen*8+sizeof (crc32)*8+TRAILING_ZEROS;
+
+	return s;
+}
+
+static packetDecodeStatus identityDecode (const uint8_t * const src,
+		const size_t srcBits, uint8_t * const dest, const size_t destLen) {
+	/* expects full bytes */
+	if (srcBits % 8 != 0 || srcBits <= 32) {
+		SEGGER_RTT_printf (0, "packet len fail, %u\n", srcBits);
+		return PACKET_DECODE_LINECODE_FAIL;
+	}
+
+	/* check crc32 at end of packet */
+	uint32_t crc32 = crc32Calc ((uint32_t *) dest, srcBits/8-4);
+	if (crc32 != 0) {
+		const unsigned int incorrect = crc32IncorrectBit (crc32);
+		if (incorrect != -1) {
+			SEGGER_RTT_printf (0, "crc mismatch %x, bit %u incorrect\n", crc32, incorrect);
+			/* correct that bit */
+			dest[incorrect/8] ^= (1<<(incorrect%8));
+			/* try again, XXX: is this required or can we just assume the
+			 * packet is now correct? */
+			crc32 = crc32Calc ((uint32_t *) dest, srcBits/8-4);
+			if (crc32 != 0) {
+				SEGGER_RTT_printf (0, "uncorrectable 1 bit crc error\n");
+				return PACKET_DECODE_ECC_FAIL;
+			}
+		} else {
+			SEGGER_RTT_printf (0, "uncorrectable n bit crc error\n");
+			return PACKET_DECODE_CHECKSUM_FAIL;
+		}
+	}
+
+	assert (srcBits/8-4 <= destLen);
+	memcpy (dest, src, srcBits/8-4);
+
+	return PACKET_DECODE_OK;
+}
+
+static size_t identityTxLen (const size_t payloadLen) {
+	return PREAMBLE+payloadLen+4+TRAILING_ZEROS_BYTES;
+}
+
+static size_t identityRxLen (const size_t payloadLen) {
+	return (payloadLen+4)*8;
+}
+
+void packetIdentityInit (packetEncoder * const enc) {
+	enc->encode = identityEncode;
+	enc->decode = identityDecode;
+	enc->txlen = identityTxLen;
+	enc->rxlen = identityRxLen;
+}
