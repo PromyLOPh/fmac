@@ -296,6 +296,15 @@ const tdaConfigVal tdaConfig[] = {
 
 	{TDA_B_TSIPTA0, 0x96},
 	{TDA_B_TSIPTA1, 0x59},
+
+	/* AFC. Required if both XMC4500 shield and csmTDA are in use concurrently.
+	 * Apparently csmTDA’s frequency generation differs slightly from that of
+	 * the shield. */
+#if 0
+	{TDA_B_AFCSFCFG, 0x1}, /* always on */
+	{TDA_B_AFCKCFG0, 500&0xff}, /* lower part of k1=2000=1/50*bitrate, see measurements */
+	{TDA_B_AFCKCFG1, ((0x0)<<5) | ((500>>8)&0x1f)}, /* upper part of k1 and k2=1/1*k1 */
+#endif
 	};
 const size_t tdaConfigSize = arraysize (tdaConfig);
 
