@@ -8,6 +8,8 @@
 #define DEBUG_NUMSTATIONS (2)
 /* continuously send packets */
 //#define DEBUG_CONTINUOUS_SEND
+/* wait random time before querying tx callback, depends on continuous send */
+//#define DEBUG_RANDOM_DELAY (1000000)
 #endif
 
 /* toggle pin for timing events */

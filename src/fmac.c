@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdlib.h>
 #include <xmc_ccu4.h>
 #include <xmc_scu.h>
 
@@ -193,6 +194,10 @@ static void dispatch (fmacCtx * const fm) {
 			fm->state = FMAC_IDLE;
 			/* XXX: we should enforce switching to rx here if it failed for some reason */
 			if (fm->txcb != NULL) {
+#ifdef DEBUG_RANDOM_DELAY
+				const unsigned int wait = rand ()%(DEBUG_RANDOM_DELAY);
+				for (volatile unsigned int i = 0; i < wait; i++);
+#endif
 				const void *data;
 				size_t size;
 				if (fm->txcb (fm->cbdata, &data, &size)) {
