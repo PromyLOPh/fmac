@@ -52,10 +52,10 @@ static const uint32_t PRIO_SPI_SUB = 0;
 
 /* must have higher priority than scheduler, since sched is waiting (polling)
  * for tda */
-static const uint32_t PRIO_TDA_PREEMPT = 2*PRIO_STEP;
+static const uint32_t PRIO_TDA_PREEMPT = 1*PRIO_STEP;
 static const uint32_t PRIO_TDA_SUB = 0;
 
-static const uint32_t PRIO_SCHED_PREEMPT = 1*PRIO_STEP;
+static const uint32_t PRIO_SCHED_PREEMPT = 2*PRIO_STEP;
 static const uint32_t PRIO_SCHED_SUB = 0;
 #undef PRIO_STEP
 #elif UC_SERIES == XMC45
