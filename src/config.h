@@ -21,6 +21,8 @@
 /* en/disable debugging output */
 //#define DEBUG_FMAC
 //#define DEBUG_SPICLIENT
+//#define DEBUG_DUMP_TXDATA
+#define DEBUG_DUMP_RXDATA
 
 #define TDA_BAUDRATE (2000000)
 

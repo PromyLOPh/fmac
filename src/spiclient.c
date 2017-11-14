@@ -105,6 +105,14 @@ static void initFifos (spiclient * const client) {
 
 #include "fmac.h"
 
+/*	dump data to RTT channel 1, used to display it on the host
+ */
+static void dumpData (const char * const payload, const size_t size) {
+	const uint32_t ident = 0x48fac0b4;
+	SEGGER_RTT_Write (1, &ident, sizeof (ident));
+	SEGGER_RTT_Write (1, payload, size);
+}
+
 /*	Called whenever station wants to send data (i.e. this node own the current slot)
  */
 bool spiclientTx (void * const data, const void ** const payload, size_t * const size) {
@@ -131,6 +139,9 @@ bool spiclientTx (void * const data, const void ** const payload, size_t * const
 	if (ret != NULL) {
 		*payload = ret;
 		*size = PAYLOAD_SIZE;
+		#ifdef DEBUG_DUMP_TXDATA
+		dumpData (*payload, *size);
+		#endif
 		return true;
 	}
 #endif
@@ -145,10 +156,9 @@ bool spiclientRx (void * const data, const void * const payload, const size_t si
 
 	spiclient * const client = (spiclient * const) data;
 
-	/* dump data to RTT channel 1, used to display it on the host */
-	const uint32_t ident = 0x48fac0b4;
-	SEGGER_RTT_Write (1, &ident, sizeof (ident));
-	SEGGER_RTT_Write (1, payload, size);
+	#ifdef DEBUG_DUMP_RXDATA
+	dumpData (payload, size);
+	#endif
 
 	uint8_t * const ret = fifoPushAlloc (&client->rxFifo);
 
