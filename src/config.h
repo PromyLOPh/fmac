@@ -48,29 +48,29 @@
 #if UC_SERIES == XMC11
 /* XMC1100 has four priority levels from high to low: 0, 64, 128, 192 */
 #define PRIO_STEP (64)
-/* highest priority. we must react immediately with response */
-static const uint32_t PRIO_SPI_PREEMPT = 0*PRIO_STEP;
+/* lowest priority, spi interface is asynchronous */
+static const uint32_t PRIO_SPI_PREEMPT = 2*PRIO_STEP;
 static const uint32_t PRIO_SPI_SUB = 0;
 
 /* must have higher priority than scheduler, since sched is waiting (polling)
  * for tda */
-static const uint32_t PRIO_TDA_PREEMPT = 1*PRIO_STEP;
+static const uint32_t PRIO_TDA_PREEMPT = 0*PRIO_STEP;
 static const uint32_t PRIO_TDA_SUB = 0;
 
-static const uint32_t PRIO_SCHED_PREEMPT = 2*PRIO_STEP;
+static const uint32_t PRIO_SCHED_PREEMPT = 1*PRIO_STEP;
 static const uint32_t PRIO_SCHED_SUB = 0;
 #undef PRIO_STEP
 #elif UC_SERIES == XMC45
-/* highest priority. we must react immediately with response */
-static const uint32_t PRIO_SPI_PREEMPT = 14;
+/* lowest priority, spi interface is asynchronous */
+static const uint32_t PRIO_SPI_PREEMPT = 16;
 static const uint32_t PRIO_SPI_SUB = 0;
 
 /* must have higher priority than scheduler, since sched is waiting (polling)
  * for tda */
-static const uint32_t PRIO_TDA_PREEMPT = 15;
+static const uint32_t PRIO_TDA_PREEMPT = 14;
 static const uint32_t PRIO_TDA_SUB = 0;
 
-static const uint32_t PRIO_SCHED_PREEMPT = 16;
+static const uint32_t PRIO_SCHED_PREEMPT = 15;
 static const uint32_t PRIO_SCHED_SUB = 0;
 #endif
 

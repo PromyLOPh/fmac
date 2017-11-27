@@ -12,10 +12,6 @@ typedef void (*spiclientTriggerSend) (void * data);
 
 typedef struct {
 	XMC_USIC_CH_t *dev;
-	uint8_t mode;
-	/* request/response data */
-	uint8_t req[16];
-	uint8_t reqPos;
 	fifo rxFifo, txFifo;
 	/* backing memory for fifos */
 	uint8_t rxData[SPICLIENT_RX_ITEM_SIZE*3], txData[SPICLIENT_TX_ITEM_SIZE*3];
