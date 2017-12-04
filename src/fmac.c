@@ -123,12 +123,12 @@ static void rxeom (tda5340Ctx * const tda, void * const data) {
 	const uint32_t rxLen = bitbufferLength (&rxPacketBuf);
 	//debug ("received %u bits\n", rxLen);
 
-	DEBUG_TIMING_FMAC_RCV_FIRE;
 	if (fm->enc.decode (rxPacket, rxLen, fm->rxPacket,
 			sizeof (fm->rxPacket)) == PACKET_DECODE_OK && fm->rxcb != NULL) {
 		fm->rxcb (fm->cbdata, fm->rxPacket, fm->payloadLen);
 	}
 
+	DEBUG_TIMING_FMAC_RCV_FIRE;
 done: ;
 	RX_LED_FIRE;
 }
@@ -382,12 +382,12 @@ bool fmacSend (fmacCtx * const fm, const uint8_t * const buf, const uint8_t len)
 	if (!fm->initialized || !fmacCanSend (fm)) {
 		return false;
 	}
+	DEBUG_TIMING_FMAC_SEND_FIRE;
+
 	assert (!fm->txPacketValid);
 	assert (len == fm->payloadLen);
 	size_t actualLenBits = fm->enc.encode (buf, len, fm->txPacket, sizeof (fm->txPacket));
 	assert (actualLenBits <= fm->frameletLen*8);
-
-	DEBUG_TIMING_FMAC_SEND_FIRE;
 
 	fm->state = FMAC_SEND;
 	fm->txPacketValid = true;
