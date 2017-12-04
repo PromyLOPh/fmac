@@ -1,3 +1,11 @@
+/* SPI slave implementation
+ *
+ * The master pulls SS low, sends a one byte command identifier (spiclientCommand) followed
+ * by arguments and pulls SS back high. After some processing time (XXX: how
+ * much?) SS can be pulled low again and the byte 0xaa followed by the response
+ * can be read.
+ */
+
 #include "spiclient.h"
 #include <xmc_gpio.h>
 #include <assert.h>
