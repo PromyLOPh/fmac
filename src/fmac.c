@@ -261,8 +261,17 @@ static void compareInit (const XMC_CCU4_SLICE_PRESCALER_t prescaler,
 
 const tdaConfigVal tdaConfig[] = {
 	/* generic config */
+#if UC_SERIES == XMC11
+	/* csmTDA uses different oscillator */
 	{TDA_XTALCAL0, 0x91},
+#elif UC_SERIES == XMC45
+	/* TDA shield/eval kit */
+	{TDA_XTALCAL0, 0x86},
+	{TDA_XTALCAL1, 0x09},
+#endif
+
 	{TDA_PLLCFG, 0x08},
+
 	/* mask all interrupts, except … */
 	{TDA_IM0, (uint8_t) ~((1<<TDA_IM0_FSYNCB_OFF) | (1<<TDA_IM0_EOMB_OFF))},
 	{TDA_IM2, (uint8_t) ~((1<<TDA_IM2_TXEMPTY_OFF) | (1<<TDA_IM2_TXREADY_OFF))},
