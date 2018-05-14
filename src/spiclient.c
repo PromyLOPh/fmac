@@ -8,10 +8,15 @@
 
 #include "spiclient.h"
 #include <xmc_gpio.h>
+#include <xmc_uart.h>
 #include <assert.h>
 #include <stdio.h>
 #include "util.h"
 #include "config.h"
+
+#if (defined(USE_SPI) && defined(USE_UART)) || !(defined(USE_SPI) || defined(USE_UART))
+#error "Please define either USE_UART or USE_SPI"
+#endif
 
 #include <SEGGER_RTT.h>
 #ifdef DEBUG_SPICLIENT
@@ -66,8 +71,6 @@ typedef enum {
 	CMD_COUNT = 0x5,
 } spiclientCommand;
 
-#define PAYLOAD_SIZE (12)
-
 typedef enum {
 	REG_INVALID = 0x0,
 	/* packets pending in rx queue */
@@ -113,7 +116,7 @@ bool spiclientTx (void * const data, const void ** const payload, size_t * const
 	/* debugging: continuously send data */
 	static uint32_t seqnum = 0;
 	/* must be static, otherwise it will be overwritten on the stack */
-	static uint8_t foo[PAYLOAD_SIZE];
+	static uint8_t foo[12];
 	memset (foo, 0, sizeof (foo));
 	memcpy (foo, &fm->i, sizeof (fm->i));
 	memcpy (&foo[sizeof (fm->i)], &seqnum, sizeof (seqnum));
@@ -125,7 +128,7 @@ bool spiclientTx (void * const data, const void ** const payload, size_t * const
 	void * const ret = fifoPop (&client->txFifo);
 	if (ret != NULL) {
 		*payload = ret;
-		*size = PAYLOAD_SIZE;
+		*size = client->payloadSize;
 		#ifdef DEBUG_DUMP_TXDATA
 		dumpData (*payload, *size);
 		#endif
@@ -167,14 +170,21 @@ bool spiclientRx (void * const data, const void * const payload, const size_t si
 static void queueResponse (XMC_USIC_CH_t * const dev, const void * const data, const size_t size) {
 	const uint8_t * const byte = data;
 	/* atomic fifo write */
-	XMC_SPI_CH_DisableDataTransmission (dev);
+	XMC_SPI_CH_DisableDataTransmission (dev); /* same for UART */
+#if defined(USE_SPI)
 	/* start of frame/response marker */
 	XMC_USIC_CH_TXFIFO_PutData (dev, 0xaa);
+#endif
 	for (size_t i = 0; i < size; i++) {
 		assert (!XMC_USIC_CH_TXFIFO_IsFull (dev));
+		debug ("wrote %x (%u)\n", byte[i], i);
 		XMC_USIC_CH_TXFIFO_PutData (dev, byte[i]);
 	}
+#if defined(USE_SPI)
 	XMC_USIC_CH_TXFIFO_PutData (dev, 0xff);
+#elif defined(USE_UART)
+	XMC_USIC_CH_TXFIFO_PutDataFLEMode (dev, 0, 13); /* generate a break symbol */
+#endif
 	XMC_SPI_CH_EnableDataTransmission (dev);
 }
 
@@ -195,19 +205,30 @@ void ISR () {
 	spiclient * const client = staticClient;
 	XMC_USIC_CH_t * const dev = client->dev;
 
+#if defined(USE_SPI)
 	const uint32_t status = XMC_SPI_CH_GetStatusFlag (dev);
+#elif defined(USE_UART)
+	const uint32_t status = XMC_UART_CH_GetStatusFlag (dev);
+#endif
 	debug ("status: %x\n", status);
 
+#if defined(USE_SPI)
 	if (status & XMC_SPI_CH_STATUS_FLAG_DATA_LOST_INDICATION) {
 		XMC_SPI_CH_ClearStatusFlag (dev, XMC_SPI_CH_STATUS_FLAG_DATA_LOST_INDICATION);
 		XMC_USIC_CH_RXFIFO_Flush (dev);
 		debug ("lost\n");
 		return;
 	}
+#elif defined(USE_UART)
+#endif
 
 	/* master must assert (low-active!) slave select once request is done,
 	 * response will be written to fifo and can be read afterwards */
+#if defined(USE_SPI)
 	if (status & XMC_SPI_CH_STATUS_FLAG_DX2T_EVENT_DETECTED) {
+#elif defined(USE_UART)
+	if (status & XMC_UART_CH_STATUS_FLAG_SYNCHRONIZATION_BREAK_DETECTED) {
+#endif
 		debug ("%u items in rx buffer\n", XMC_USIC_CH_RXFIFO_GetLevel (dev));
 		const uint8_t command = XMC_USIC_CH_RXFIFO_GetData (dev);
 		if (command < CMD_COUNT) {
@@ -222,7 +243,7 @@ void ISR () {
 				case CMD_READBUF: {
 					void * const ret = fifoPop (&client->rxFifo);
 					if (ret != NULL) {
-						queueResponse (dev, ret, PAYLOAD_SIZE);
+						queueResponse (dev, ret, client->payloadSize);
 					}
 					break;
 				}
@@ -231,7 +252,7 @@ void ISR () {
 				case CMD_WRITEBUF: {
 					void * const ret = fifoPushAlloc (&client->txFifo);
 					if (ret != NULL) {
-						readFifoInto (dev, ret, PAYLOAD_SIZE);
+						readFifoInto (dev, ret, client->payloadSize);
 						fifoPushCommit (&client->txFifo);
 						client->triggerSend (client->macData);
 					}
@@ -241,6 +262,7 @@ void ISR () {
 				/* read register */
 				case CMD_READREG: {
 					const uint8_t reg = XMC_USIC_CH_RXFIFO_GetData (dev);
+					debug ("reading reg %u\n", reg);
 					switch (reg) {
 						case REG_RXPENDING: {
 							const uint32_t items = fifoItems (&client->rxFifo);
@@ -283,10 +305,16 @@ void ISR () {
 						case REG_CONFIG: {
 							const uint8_t stationId = XMC_USIC_CH_RXFIFO_GetData (dev);
 							const uint8_t numStations = XMC_USIC_CH_RXFIFO_GetData (dev);
+							const uint8_t payloadSize = XMC_USIC_CH_RXFIFO_GetData (dev);
+							assert (payloadSize <= SPICLIENT_RX_ITEM_SIZE &&
+									payloadSize <= SPICLIENT_TX_ITEM_SIZE);
+							client->payloadSize = payloadSize;
 							initFifos (client);
-							debug ("configuring with i=%u, n=%u\n", stationId, numStations);
+							debug ("configuring with i=%u, n=%u, len=%u\n", stationId,
+									numStations, payloadSize);
 							assert (client->initMac != NULL);
-							client->initMac (client->macData, stationId, numStations);
+							client->initMac (client->macData, stationId,
+									numStations, payloadSize);
 							break;
 						}
 					}
@@ -297,7 +325,11 @@ void ISR () {
 
 		/* slave select was asserted */
 		DEBUG_RX;
+		#if defined(USE_SPI)
 		XMC_SPI_CH_ClearStatusFlag (dev, XMC_SPI_CH_STATUS_FLAG_DX2T_EVENT_DETECTED);
+		#elif defined(USE_UART)
+		XMC_UART_CH_ClearStatusFlag (dev, XMC_UART_CH_STATUS_FLAG_SYNCHRONIZATION_BREAK_DETECTED);
+		#endif
 		/* remove remaining fifo entries, if we did not read them all */
 		XMC_USIC_CH_RXFIFO_Flush (dev);
 		debug ("event: cs\n");
@@ -333,6 +365,8 @@ void spiclientInit (spiclient * const client, XMC_USIC_CH_t * const dev,
 	XMC_GPIO_Init (SPI_SS, &configTri);
 	XMC_GPIO_Init (SPI_SCLK, &configTri);
 	XMC_GPIO_Init (SPI_MISO, &configAlt);
+
+#if defined(USE_SPI)
 	/* SPI config */
 	XMC_SPI_CH_CONFIG_t config = {
 		.bus_mode = XMC_SPI_CH_BUS_MODE_SLAVE,
@@ -360,16 +394,29 @@ void spiclientInit (spiclient * const client, XMC_USIC_CH_t * const dev,
 	/* enable receive interrupts */
 	XMC_SPI_CH_ClearStatusFlag (dev, XMC_SPI_CH_STATUS_FLAG_DX2T_EVENT_DETECTED);
 	XMC_SPI_CH_EnableEvent (dev, XMC_SPI_CH_EVENT_DX2TIEN_ACTIVATED);
+
+	XMC_SPI_CH_Receive (dev, XMC_SPI_CH_MODE_STANDARD);
+#elif defined(USE_UART)
+	XMC_UART_CH_CONFIG_t uart_config = {
+		.data_bits = 8U,
+		.stop_bits = 1U,
+		.baudrate = 9600U
+		};
+	assert (UC_SERIES == XMC45);
+	XMC_UART_CH_Init(dev, &uart_config);
+	XMC_UART_CH_SetInputSource(dev, XMC_UART_CH_INPUT_RXD, SPI_MOSI_SRC);
+	XMC_UART_CH_Start (dev);
+	XMC_UART_CH_EnableEvent (dev, XMC_UART_CH_EVENT_SYNCHRONIZATION_BREAK);
+#endif
+	/* set up fifo, always transmit immediately */
+	/* are rx and tx fifo are shared, data section for rxfifo is after txfifo (offset 32) */
+	XMC_USIC_CH_TXFIFO_Configure (dev, 0, XMC_USIC_CH_FIFO_SIZE_32WORDS, 0);
+	XMC_USIC_CH_RXFIFO_Configure (dev, 32, XMC_USIC_CH_FIFO_SIZE_32WORDS, 0);
+
 	/* spi client has lower priority than timer and tda */
     NVIC_SetPriority (IRQN, priority);
     NVIC_EnableIRQ (IRQN);
 
 	debug ("done. waiting for input\n");
-
-	XMC_SPI_CH_Receive (dev, XMC_SPI_CH_MODE_STANDARD);
-	/* set up fifo, always transmit immediately */
-	/* are rx and tx fifo are shared, data section for rxfifo is after txfifo (offset 32) */
-	XMC_USIC_CH_TXFIFO_Configure (dev, 0, XMC_USIC_CH_FIFO_SIZE_32WORDS, 0);
-	XMC_USIC_CH_RXFIFO_Configure (dev, 32, XMC_USIC_CH_FIFO_SIZE_32WORDS, 0);
 }
 

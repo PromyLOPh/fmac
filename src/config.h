@@ -2,6 +2,9 @@
 
 /* user/application configuration */
 
+//#define USE_SPI
+#define USE_UART
+
 #if 0
 /* fixed parameters for debugging without SPI adapter */
 #define DEBUG_STATIONID (0)
@@ -20,7 +23,7 @@
 
 /* en/disable debugging output */
 //#define DEBUG_FMAC
-//#define DEBUG_SPICLIENT
+#define DEBUG_SPICLIENT
 //#define DEBUG_DUMP_TXDATA
 #define DEBUG_DUMP_RXDATA
 

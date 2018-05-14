@@ -65,12 +65,12 @@ void SystemCoreClockSetup () {
 
 /* 	glue between fmac and spiclient */
 /*	init fmac */
-static void initMac (void *data, const uint8_t i, const uint8_t n) {
+static void initMac (void *data, const uint8_t i, const uint8_t n,
+		const uint8_t payloadSize) {
 	assert (data != NULL);
 	assert (i < n);
 
 	fmacCtx * const fm = data;
-	const uint32_t payloadSize = 12;
 	fmacInit (fm, i, n, &tda0, payloadSize);
 }
 
@@ -134,7 +134,7 @@ int main() {
 	spi.macData = &fm;
 
 #if defined(DEBUG_STATIONID) && defined(DEBUG_NUMSTATIONS)
-	initMac (&fm, DEBUG_STATIONID, DEBUG_NUMSTATIONS);
+	initMac (&fm, DEBUG_STATIONID, DEBUG_NUMSTATIONS, 16);
 #endif
 
 	while (1);
